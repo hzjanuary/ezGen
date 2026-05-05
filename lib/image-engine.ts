@@ -179,10 +179,52 @@ class OpenAIEngine implements ImageEngine {
 }
 
 // ============================================================
+// Pollinations AI Engine (Free Fallback Cuối Cùng)
+// ============================================================
+class PollinationsEngine implements ImageEngine {
+  name = 'Pollinations AI (Free)';
+
+  async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
+    const dimensions = getImageDimensions(options.aspectRatio);
+    const styleModifier = STYLE_PROMPTS[options.style] || '';
+    const fullPrompt = `${prompt}, ${styleModifier}`;
+    
+    // Đảm bảo cache-busting bằng seed ngẫu nhiên
+    const seed = Math.floor(Math.random() * 100000);
+    const encodedPrompt = encodeURIComponent(fullPrompt.substring(0, 1000));
+    
+    const results: ImageResult[] = [];
+    for (let i = 0; i < options.numImages; i++) {
+      const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${dimensions.width}&height=${dimensions.height}&nologo=true&seed=${seed + i}&model=flux`;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch from Pollinations');
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64 = buffer.toString('base64');
+        results.push({
+          url: `data:image/jpeg;base64,${base64}`,
+          width: dimensions.width,
+          height: dimensions.height,
+        });
+      } catch (e) {
+        console.warn('Pollinations fetch error', e);
+        results.push({
+          url,
+          width: dimensions.width,
+          height: dimensions.height,
+        });
+      }
+    }
+    return results;
+  }
+}
+
+// ============================================================
 // Factory & Fallback Management
 // ============================================================
 export class AutoFallbackEngine implements ImageEngine {
-  name = 'Auto Fallback (Imagen → Gemini → OpenAI)';
+  name = 'Auto Fallback (Imagen → Gemini → OpenAI → Pollinations)';
 
   static getSpecificEngine(engineName: string): ImageEngine | null {
     switch (engineName) {
@@ -192,16 +234,19 @@ export class AutoFallbackEngine implements ImageEngine {
         return process.env.GOOGLE_AI_API_KEY ? new GeminiImageEngine() : null;
       case 'openai':
         return process.env.OPENAI_API_KEY ? new OpenAIEngine() : null;
+      case 'pollinations':
+        return new PollinationsEngine();
       default:
         return null;
     }
   }
 
   async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
-    const engines: Array<{ engine: ImageEngine; key: string }> = [
+    const engines: Array<{ engine: ImageEngine; key: string | null }> = [
       { engine: new GoogleImagenEngine(), key: 'GOOGLE_AI_API_KEY' },
       { engine: new GeminiImageEngine(), key: 'GOOGLE_AI_API_KEY' },
       { engine: new OpenAIEngine(), key: 'OPENAI_API_KEY' },
+      { engine: new PollinationsEngine(), key: null }, // Pollinations không cần key
     ];
 
     let lastError: Error | null = null;
@@ -209,7 +254,7 @@ export class AutoFallbackEngine implements ImageEngine {
 
     for (const { engine, key } of engines) {
       try {
-        if (!process.env[key]) {
+        if (key && !process.env[key]) {
           console.warn(`[ImageEngine] Bỏ qua ${engine.name} vì thiếu key ${key}`);
           continue;
         }
