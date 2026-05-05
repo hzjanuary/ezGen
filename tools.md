@@ -2,12 +2,9 @@
 
 1. Công cụ cho chức năng tạo ảnh (Image Generation)
 Hệ thống sử dụng các mô hình khuếch tán (Diffusion Models) hàng đầu để chuyển đổi văn bản thành hình ảnh, với thứ tự ưu tiên (Fallback chain):
-- **Gemini 2.5 Flash Image**: Engine mặc định, sử dụng Nano Banana của Google, có khả năng hiểu ngữ cảnh Việt Nam rất tốt và tạo ảnh nhanh chóng.
-- **OpenAI (DALL-E 3)**: Engine dự phòng số 1. Khả năng tuân thủ text prompt tuyệt vời và chất lượng hình ảnh rất cao.
-- **Together AI (FLUX.1 / Stable Diffusion)**: Engine dự phòng số 2. Cung cấp các model chất lượng cao như FLUX.1-schnell và Stable Diffusion 3, hỗ trợ tạo ảnh tốc độ cao với giá thành rẻ.
-- **Fal.ai (Flux Dev)**: Engine dự phòng số 2. Được sử dụng để xử lý các chi tiết phức tạp như bàn tay, chữ viết và mang lại độ chân thực cao cho làn da.
-- **Pollinations AI**: Engine dự phòng cuối cùng (chạy miễn phí, không cần API Key), trả về ảnh thực tế được tạo từ mô hình AI (như Flux/Stable Diffusion) để đảm bảo UI luôn có ảnh đẹp kể cả khi tất cả các API Key trả phí đều hết hạn.
-- **Midjourney API** (Dự kiến): Cung cấp các phong cách hình ảnh mang tính điện ảnh và hội họa chuyên nghiệp.
+- **Google Imagen 4.0**: Engine mặc định, khả năng tạo ảnh người thực cực kỳ chính xác và chân thật.
+- **Gemini 2.5 Flash Image (Banana)**: Engine dự phòng số 1, có khả năng hiểu ngữ cảnh Việt Nam rất tốt và tạo ảnh nhanh chóng.
+- **OpenAI (DALL-E 3)**: Engine dự phòng số 2. Khả năng tuân thủ text prompt tuyệt vời và chất lượng hình ảnh rất cao.
 
 2. Công cụ cho chức năng tạo video (Video Generation)
 Để tạo chuyển động cho hình ảnh hoặc kịch bản, trang web ứng dụng các mô hình Video Transformer mạnh mẽ (chuẩn bị tích hợp vào `/api/generate-video`):

@@ -1,6 +1,6 @@
 // ============================================================
 // ezGen — Image Generation Engine (Multi-Provider)
-// Auto-fallback: Gemini Image → OpenAI (DALL-E 3) → Together AI → Fal.ai → Pollinations AI
+// Auto-fallback: Google Imagen 4.0 → Gemini 2.5 Flash Image (Banana) → OpenAI (DALL-E 3)
 // ============================================================
 
 import { STYLE_PROMPTS, type ImageStyle } from '@/types';
@@ -25,7 +25,59 @@ interface EngineOptions {
 }
 
 // ============================================================
-// Gemini Native Image Engine (gemini-2.5-flash-image)
+// Google Imagen Engine (Imagen 4.0)
+// Sử dụng API generateImages theo docs mới nhất
+// ============================================================
+class GoogleImagenEngine implements ImageEngine {
+  name = 'Google Imagen 4.0';
+
+  async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
+    const apiKey = process.env.GOOGLE_AI_API_KEY;
+    if (!apiKey) throw new Error('GOOGLE_AI_API_KEY chưa được cấu hình');
+
+    const styleModifier = STYLE_PROMPTS[options.style] || '';
+    const fullPrompt = `${prompt}, ${styleModifier}`;
+
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey });
+
+    let aspectRatioStr = '1:1';
+    if (['1:1', '3:4', '4:3', '9:16', '16:9'].includes(options.aspectRatio)) {
+      aspectRatioStr = options.aspectRatio;
+    }
+
+    const response = await ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: fullPrompt,
+      config: {
+        numberOfImages: 1, // API giới hạn số lượng tuỳ tier
+        aspectRatio: aspectRatioStr as any,
+        personGeneration: 'allow_all' as any, // Cho phép tạo người thật
+      },
+    });
+
+    const results: ImageResult[] = [];
+    const dimensions = getImageDimensions(options.aspectRatio);
+
+    for (const generatedImage of response.generatedImages || []) {
+      const base64 = generatedImage.image?.imageBytes;
+      if (!base64) continue;
+      results.push({
+        url: `data:image/jpeg;base64,${base64}`,
+        width: dimensions.width,
+        height: dimensions.height,
+      });
+    }
+
+    if (results.length === 0) {
+      throw new Error('Google Imagen không trả về ảnh');
+    }
+    return results;
+  }
+}
+
+// ============================================================
+// Gemini Native Image Engine (Banana) (gemini-2.5-flash-image)
 // ============================================================
 class GeminiImageEngine implements ImageEngine {
   name = 'Gemini 2.5 Flash Image';
@@ -72,97 +124,6 @@ class GeminiImageEngine implements ImageEngine {
       throw new Error('Gemini không trả về ảnh');
     }
     return results;
-  }
-}
-
-// ============================================================
-// Together AI Engine (FLUX, Stable Diffusion)
-// REST API: https://api.together.ai/v1/images/generations
-// ============================================================
-class TogetherAIEngine implements ImageEngine {
-  name = 'Together AI (FLUX)';
-
-  async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
-    const apiKey = process.env.TOGETHER_API_KEY;
-    if (!apiKey) throw new Error('TOGETHER_API_KEY chưa được cấu hình');
-
-    const styleModifier = STYLE_PROMPTS[options.style] || '';
-    const fullPrompt = `${prompt}, ${styleModifier}`;
-    const dimensions = getImageDimensions(options.aspectRatio);
-
-    const response = await fetch('https://api.together.ai/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-schnell-Free',
-        prompt: fullPrompt,
-        width: dimensions.width,
-        height: dimensions.height,
-        n: options.numImages,
-        steps: 4,
-        response_format: 'b64_json',
-      }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Together AI ${response.status}: ${error}`);
-    }
-
-    const data = await response.json();
-    return (data.data || []).map((img: { b64_json?: string; url?: string }) => ({
-      url: img.b64_json
-        ? `data:image/png;base64,${img.b64_json}`
-        : img.url || '',
-      width: dimensions.width,
-      height: dimensions.height,
-    }));
-  }
-}
-
-// ============================================================
-// Fal.ai Engine (Flux Dev)
-// ============================================================
-class FalAIEngine implements ImageEngine {
-  name = 'Fal.ai (Flux)';
-
-  async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
-    const apiKey = process.env.FAL_KEY;
-    if (!apiKey) throw new Error('FAL_KEY chưa được cấu hình');
-
-    const styleModifier = STYLE_PROMPTS[options.style] || '';
-    const fullPrompt = `${prompt}, ${styleModifier}`;
-    const imageSizeEnum = getImageSizeEnum(options.aspectRatio);
-
-    const { fal } = await import('@fal-ai/client');
-    fal.config({ credentials: apiKey });
-
-    const result = await fal.subscribe('fal-ai/flux/dev', {
-      input: {
-        prompt: fullPrompt,
-        image_size: imageSizeEnum as "square_hd" | "square" | "portrait_4_3" | "portrait_16_9" | "landscape_4_3" | "landscape_16_9",
-        num_images: options.numImages,
-        enable_safety_checker: true,
-        output_format: 'jpeg',
-      },
-    });
-
-    const data = result.data as {
-      images: Array<{ url: string; width: number; height: number }>;
-    };
-
-    if (!data.images || data.images.length === 0) {
-      throw new Error('Fal.ai không trả về ảnh');
-    }
-
-    return data.images.map((img) => ({
-      url: img.url,
-      width: img.width || 1024,
-      height: img.height || 1024,
-    }));
   }
 }
 
@@ -218,142 +179,72 @@ class OpenAIEngine implements ImageEngine {
 }
 
 // ============================================================
-// Pollinations AI Engine (Free, no API key needed)
+// Factory & Fallback Management
 // ============================================================
-class PollinationsEngine implements ImageEngine {
-  name = 'Pollinations AI (Free)';
+export class AutoFallbackEngine implements ImageEngine {
+  name = 'Auto Fallback (Imagen → Gemini → OpenAI)';
 
-  async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
-    const dimensions = getImageDimensions(options.aspectRatio);
-    const styleModifier = STYLE_PROMPTS[options.style] || '';
-    const fullPrompt = `${prompt}, ${styleModifier}`;
-    
-    // Đảm bảo cache-busting bằng seed ngẫu nhiên
-    const seed = Math.floor(Math.random() * 100000);
-    const encodedPrompt = encodeURIComponent(fullPrompt.substring(0, 1000)); // Giới hạn độ dài url
-    
-    const results: ImageResult[] = [];
-    for (let i = 0; i < options.numImages; i++) {
-      const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${dimensions.width}&height=${dimensions.height}&nologo=true&seed=${seed + i}`;
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Failed to fetch from Pollinations');
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64 = buffer.toString('base64');
-        results.push({
-          url: `data:image/jpeg;base64,${base64}`,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-      } catch (e) {
-        console.warn('Pollinations fetch error', e);
-        // Fallback to direct URL if fetch fails
-        results.push({
-          url,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-      }
+  static getSpecificEngine(engineName: string): ImageEngine | null {
+    switch (engineName) {
+      case 'imagen':
+        return process.env.GOOGLE_AI_API_KEY ? new GoogleImagenEngine() : null;
+      case 'gemini':
+        return process.env.GOOGLE_AI_API_KEY ? new GeminiImageEngine() : null;
+      case 'openai':
+        return process.env.OPENAI_API_KEY ? new OpenAIEngine() : null;
+      default:
+        return null;
     }
-    return results;
   }
-}
-
-// ============================================================
-// Factory — Chọn engine cụ thể hoặc auto-fallback
-// ============================================================
-
-/** Lấy engine theo tên */
-function getSpecificEngine(engineType: string): ImageEngine | null {
-  switch (engineType) {
-    case 'gemini':
-      return process.env.GOOGLE_AI_API_KEY ? new GeminiImageEngine() : null;
-    case 'together':
-      return process.env.TOGETHER_API_KEY ? new TogetherAIEngine() : null;
-    case 'openai':
-      return process.env.OPENAI_API_KEY ? new OpenAIEngine() : null;
-    case 'fal':
-      return process.env.FAL_KEY ? new FalAIEngine() : null;
-    case 'pollinations':
-      return new PollinationsEngine();
-    default:
-      return null;
-  }
-}
-
-/** Lấy engine phù hợp — có auto-fallback */
-export function getImageEngine(engineType: string): ImageEngine {
-  // Nếu chọn cụ thể và có key → dùng engine đó
-  const specific = getSpecificEngine(engineType);
-  if (specific) return specific;
-
-  // Auto-fallback theo thứ tự ưu tiên
-  return new AutoFallbackEngine();
-}
-
-/**
- * Engine tự động thử các provider theo thứ tự
- * Gemini → Together AI → Fal.ai → Mock
- */
-class AutoFallbackEngine implements ImageEngine {
-  name = 'Auto (Fallback)';
 
   async generate(prompt: string, options: EngineOptions): Promise<ImageResult[]> {
     const engines: Array<{ engine: ImageEngine; key: string }> = [
+      { engine: new GoogleImagenEngine(), key: 'GOOGLE_AI_API_KEY' },
       { engine: new GeminiImageEngine(), key: 'GOOGLE_AI_API_KEY' },
       { engine: new OpenAIEngine(), key: 'OPENAI_API_KEY' },
-      { engine: new TogetherAIEngine(), key: 'TOGETHER_API_KEY' },
-      { engine: new FalAIEngine(), key: 'FAL_KEY' },
     ];
 
-    const errors: string[] = [];
+    let lastError: Error | null = null;
+    let errors: string[] = [];
 
     for (const { engine, key } of engines) {
-      if (!process.env[key]) continue;
-
       try {
-        console.log(`[ImageGen] Đang thử ${engine.name}...`);
-        const results = await engine.generate(prompt, options);
-        console.log(`[ImageGen] ✓ Thành công với ${engine.name}`);
-        this.name = engine.name;
-        return results;
+        if (!process.env[key]) {
+          console.warn(`[ImageEngine] Bỏ qua ${engine.name} vì thiếu key ${key}`);
+          continue;
+        }
+
+        console.log(`[ImageEngine] Đang thử tạo ảnh với ${engine.name}...`);
+        const result = await engine.generate(prompt, options);
+        console.log(`[ImageEngine] Thành công với ${engine.name}!`);
+        return result;
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.warn(`[ImageGen] ✗ ${engine.name}: ${msg}`);
-        errors.push(`${engine.name}: ${msg}`);
+        lastError = error as Error;
+        const msg = `[ImageEngine] ${engine.name} lỗi: ${lastError.message}`;
+        console.warn(msg);
+        errors.push(msg);
       }
     }
 
-    // Cuối cùng fallback về Pollinations AI
-    console.warn('[ImageGen] Tất cả engines thất bại, dùng Pollinations AI');
-    const pollinations = new PollinationsEngine();
-    this.name = pollinations.name;
-    return pollinations.generate(prompt, options);
+    throw new Error(`Tất cả engine đều lỗi:\n${errors.join('\n')}`);
   }
 }
 
-// ============================================================
-// Utilities
-// ============================================================
-function getImageSizeEnum(aspectRatio: string): string {
-  const map: Record<string, string> = {
-    '1:1': 'square_hd',
-    '16:9': 'landscape_16_9',
-    '9:16': 'portrait_16_9',
-    '4:3': 'landscape_4_3',
-    '3:4': 'portrait_4_3',
-  };
-  return map[aspectRatio] || 'square_hd';
+export function getImageEngine(engineName: string = 'auto'): ImageEngine {
+  if (engineName !== 'auto') {
+    const engine = AutoFallbackEngine.getSpecificEngine(engineName);
+    if (engine) return engine;
+    console.warn(`Engine ${engineName} không có sẵn hoặc thiếu API key, chuyển sang chế độ auto-fallback`);
+  }
+  return new AutoFallbackEngine();
 }
 
-function getImageDimensions(aspectRatio: string): { width: number; height: number } {
-  const map: Record<string, { width: number; height: number }> = {
-    '1:1': { width: 1024, height: 1024 },
-    '16:9': { width: 1344, height: 768 },
-    '9:16': { width: 768, height: 1344 },
-    '4:3': { width: 1152, height: 896 },
-    '3:4': { width: 896, height: 1152 },
-  };
-  return map[aspectRatio] || map['1:1'];
+function getImageDimensions(aspectRatio: string) {
+  switch (aspectRatio) {
+    case '16:9': return { width: 1024, height: 576 };
+    case '9:16': return { width: 576, height: 1024 };
+    case '4:3': return { width: 1024, height: 768 };
+    case '3:4': return { width: 768, height: 1024 };
+    default: return { width: 1024, height: 1024 };
+  }
 }
