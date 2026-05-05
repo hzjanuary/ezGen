@@ -29,8 +29,8 @@ export type ImageStyle =
 export interface ImageGenerationConfig {
   prompt: string;
   style: ImageStyle;
-  /** Engine sử dụng: fal (Stable Diffusion/Flux) hoặc imagen (Google Imagen 3) */
-  engine: 'fal' | 'imagen';
+  /** Engine sử dụng: imagen, gemini, pollinations hoặc auto */
+  engine: 'imagen' | 'gemini' | 'pollinations' | 'auto';
   /** Tỉ lệ khung hình */
   aspectRatio: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
   /** Số lượng ảnh tạo ra */

@@ -54,12 +54,7 @@ const providers: LLMProvider[] = [
     envKey: 'GOOGLE_AI_API_KEY',
     stream: streamGemini,
   },
-  // 2. OpenRouter (nhiều model, bao gồm Claude, GPT-4o, Llama)
-  {
-    name: 'OpenRouter',
-    envKey: 'OPENROUTER_API_KEY',
-    stream: streamOpenRouter,
-  },
+
   // 3. Groq Cloud (tốc độ cao, Llama 3.3)
   {
     name: 'Groq Cloud',
@@ -135,41 +130,6 @@ async function streamGemini(
   });
 }
 
-// ============================================================
-// OpenRouter Provider (OpenAI-compatible, nhiều model)
-// ============================================================
-async function streamOpenRouter(
-  messages: Array<{ role: string; content: string }>,
-  apiKey: string
-): Promise<ReadableStream<Uint8Array>> {
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://ezgen.app',
-      'X-Title': 'ezGen Creative Suite',
-    },
-    body: JSON.stringify({
-      model: 'google/gemini-2.5-flash',
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...messages.map((m) => ({
-          role: m.role === 'user' ? 'user' : 'assistant',
-          content: m.content,
-        })),
-      ],
-      stream: true,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OpenRouter ${response.status}: ${error}`);
-  }
-
-  return convertOpenAIStreamToSSE(response.body!);
-}
 
 // ============================================================
 // Groq Provider (OpenAI-compatible, tốc độ cao)
@@ -259,7 +219,7 @@ function convertOpenAIStreamToSSE(
 }
 
 // ============================================================
-// Prompt Optimization (cũng dùng fallback)
+// Prompt Optimization (sử dụng Gemini / Groq fallback)
 // ============================================================
 export async function optimizePrompt(
   userPrompt: string,
@@ -274,7 +234,7 @@ Phong cách yêu cầu: ${style}
 
 QUY TẮC TỐI THƯỢNG:
 1. CHỈ trả về đúng chuỗi prompt bằng tiếng Anh, không thêm bất kỳ lời giải thích hay ngoặc kép nào.
-2. Tuyệt đối bám sát chủ thể của mô tả gốc. KHÔNG ĐƯỢC đổi chủ đề (VD: gốc là "cô gái", không được đổi thành "phong cảnh").
+2. Tuyệt đối bám sát chủ thể của mô tả gốc. KHÔNG ĐƯỢC đổi chủ đề.
 3. Thêm chi tiết về ánh sáng, góc chụp (cinematic lighting, ultra detailed, 8k, masterpiece) phù hợp với phong cách.
 4. Giữ nguyên các yếu tố văn hóa Việt Nam nếu có.
 5. Không thêm negative prompt.`;
@@ -288,29 +248,7 @@ QUY TẮC TỐI THƯỢNG:
       const result = await model.generateContent(optimizationPrompt);
       return result.response.text().trim();
     } catch (e) {
-      console.warn('[PromptOpt] Gemini thất bại, thử OpenRouter...');
-    }
-  }
-
-  // Fallback: OpenRouter
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey) {
-    try {
-      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${orKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
-          messages: [{ role: 'user', content: optimizationPrompt }],
-        }),
-      });
-      const data = await resp.json();
-      return data.choices?.[0]?.message?.content?.trim() || userPrompt;
-    } catch {
-      console.warn('[PromptOpt] OpenRouter thất bại');
+      console.warn('[PromptOpt] Gemini thất bại, thử Groq...');
     }
   }
 
@@ -337,6 +275,5 @@ QUY TẮC TỐI THƯỢNG:
     }
   }
 
-  // Trả về prompt gốc nếu mọi thứ đều thất bại
   return userPrompt;
 }

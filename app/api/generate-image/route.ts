@@ -47,7 +47,9 @@ export async function POST(request: NextRequest) {
         const styleName = STYLE_PROMPTS[style] || style;
         optimizedPrompt = await optimizePrompt(prompt, styleName);
       } catch (error) {
-        console.warn('Prompt optimization failed, using original:', error);
+        // Ném luôn lỗi nếu Ollama không chạy theo blueprint mới
+        console.error('Lỗi khi tối ưu prompt qua Ollama:', error);
+        throw error;
       }
     }
 
