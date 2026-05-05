@@ -141,7 +141,8 @@ export default function DashboardPage() {
       if (fullContent.includes('[GENERATE_IMAGE]')) {
         const match = fullContent.match(/\[GENERATE_IMAGE\]\s*(.+?)(?:\n|```|$)/);
         if (match) {
-          await handleGenerateImage(match[1].trim());
+          // Khi chat đã gen prompt, không cần autoOptimize lại nữa để tránh mất ngữ cảnh
+          await handleGenerateImage(match[1].trim(), 'photorealistic', false);
         }
       }
     } catch (error) {
@@ -157,7 +158,7 @@ export default function DashboardPage() {
   }, [messages]);
 
   // Tạo ảnh từ prompt
-  const handleGenerateImage = useCallback(async (prompt: string, style: string = 'photorealistic') => {
+  const handleGenerateImage = useCallback(async (prompt: string, style: string = 'photorealistic', autoOptimize: boolean = true) => {
     setGenerationStatus('generating');
 
     try {
@@ -170,6 +171,7 @@ export default function DashboardPage() {
           engine: 'auto',
           aspectRatio: '1:1',
           numImages: 1,
+          autoOptimize,
         }),
       });
 
